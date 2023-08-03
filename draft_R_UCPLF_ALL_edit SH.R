@@ -1,20 +1,6 @@
-setwd("R:/Eva Iliopoulou/UCPLFCAA/20230721")
-
 #----------- Install Packages ------
-
-install.packages("readxl")
-install.packages("openxlsx")
-install.packages("tidyverse")
-install.packages("naniar")
-install.packages("janitor")
-install.packages("zoo")
-install.packages("DescTools")
-install.packages("dplyr")
-install.packages("ggplot2")
-install.packages("cowplot")
-install.packages("baseline")
-
 library(readxl)
+library(pracma)
 library(openxlsx)
 library(tidyverse)
 library(naniar)
@@ -212,7 +198,7 @@ df_tidy <- reshape_df(df, strip_line) # create tidy dataframe with raw data
 
 peaks <- t(peaks)
 N <- ncol(peaks) #count strips
-p <- 4 #choose p factor for the rollmean function
+p <- 1 #choose p factor for the rollmean function
 
 peaks_smooth <- data.frame(matrix(nrow=nrow(peaks),ncol=ncol(peaks))) #make empty dataframe to fill in with the smooth data, length depending on the p factor
 
@@ -222,14 +208,17 @@ for (i in seq_along(peaks)) {
 }
   }
 
-remove(i, output, p)
+peaks_smooth = na.omit(peaks_smooth)
+peaks_smooth = background_correction(peaks_smooth)
+
+#remove(i, output, p)
 
 #create tidy dataframe with smooth data 
 length(strip_line)
 strip_line <- strip_line[,] #convert from data to value IDK why but reshape_df_smooth seems to need it
 
 df_tidy_smooth <- reshape_df_smooth(peaks_smooth, strip_line)
-df_tidy_smooth <- na.omit(df_tidy_smooth)  #drop NA's introduced by na.pad in rollmean
+
 
 df_tidy_smooth <- df_tidy_smooth %>%
   mutate(sample_id = if_else(strip %in% test_samples, "test_sample", "standard")) %>%
