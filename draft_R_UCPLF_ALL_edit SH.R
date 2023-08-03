@@ -12,6 +12,7 @@ install.packages("DescTools")
 install.packages("dplyr")
 install.packages("ggplot2")
 install.packages("cowplot")
+install.packages("baseline")
 
 library(readxl)
 library(openxlsx)
@@ -23,11 +24,12 @@ library(DescTools)
 library(dplyr)
 library(ggplot2)
 library(cowplot)
+library(baseline)
 
 #----------- Manual Input ------
 
 file_name <- "230726, SCAA20, ITG soldier samples 21-30, STD 1-10.xlsx"
-test_samples <- c(1,2,3,4,5,6,7,8,9,10) #samples that are NOT part of the standard curve
+test_samples <- c(11,12,13,14,15,16,17,18,19,20) #samples that are NOT part of the standard curve
 
 #----------- Load Data -------
 
@@ -188,23 +190,14 @@ auc_calculation <- function(x, y, z, peak) {   #x = the df with the smooth measu
 }
 
 #much needed baseline correction for weird strips it's terrible now but will be fixed
-baseline_correction = function(x){
-  df=x%>%
-    na.omit()%>%
-    t()%>%
-    as.data.frame()
+background_correction <- function(x) {
+  x_cleaned <- na.omit(x)
+  df <- as.data.frame(t(x_cleaned))
+  df_corrected <- baseline.rollingBall(as.matrix(df), 6, 2)$corrected
+  df_corrected_abs <- abs(df_corrected)
+  df_final <- as.data.frame(t(df_corrected_abs))
   
-  df2=as.matrix(df)
-  #df2 = baseline.als(df2, lambda = 1, p= 0.001, maxit = 200)
-  df2<- baseline.rollingBall(df2, 6, 2)
-  df3 = as.data.frame(df2[["corrected"]])
-  
-  df3 = t(df3)%>%as.data.frame()
-  df4 = data.frame(matrix(nrow = nrow(df3), ncol = ncol(df3)))
-  
-  for (i in 1:ncol(df3)) { 
-    df4[,i] = abs(df3[,i]) 
-  }
+  return(df_final)
 }
 
 #----------- Reshape Data from Reader Output -------
@@ -230,8 +223,6 @@ for (i in seq_along(peaks)) {
   }
 
 remove(i, output, p)
-
-baseline_correction(peaks_smooth)
 
 #create tidy dataframe with smooth data 
 length(strip_line)
