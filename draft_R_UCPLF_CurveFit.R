@@ -1,0 +1,175 @@
+install.packages("drc")
+install.packages("MASS")
+library(drc)
+library(MASS)
+
+#----------Reshape Data to Fit Curve---------
+
+#make new dataframe selecting all strips that contain a standard curve measurements (caa != NA) 
+peaks_data_standard <- peaks_data_export %>% 
+  drop_na(caa) %>%
+  dplyr::select(sample_name, caa, `T/C`)
+
+#make a new data frame selecting unknown test samples (caa = NA) (not sure?? check if needed later)
+peaks_data_unknown <- peaks_data_export[11:20,] %>%
+  dplyr::select(caa, `T/C`) %>%
+  drop_na(`T/C`)
+
+#name the different standard curves ("Curve1"/"Curve2"/"Curve3) 
+sequence <- rep(1:ceiling(nrow(peaks_data_standard)/10), each = 10, length.out = nrow(peaks_data_standard))
+peaks_data_standard$curve_name <- paste0("Curve", sequence)
+
+#check the unfitted curve of all standard measurements
+unfitted_curve <- ggplot(data=peaks_data_standard, aes(x=caa, y=`T/C`)) +
+  geom_point() +
+  scale_x_continuous(trans = 
+                       'log10') +
+  theme_minimal()
+
+#Take the average for each measurement from each standard curve (usually 1 to 3 but can be any number of st curves)
+curve <- vector()
+for (i in 1:10) {
+  a <- peaks_data_standard %>%
+    filter(str_ends(sample_name, as.character(i)))  # Convert i to a character
+  b <- mean(a$`T/C`)
+  curve[i] <- b  # Store the mean value in the appropriate index of the vector c
+}
+
+#calculate average T/C corresponding to 0 caa
+curve[11] <- (curve[9]+curve[10])/2
+curve <- curve[-c(9,10)]
+
+standard_df <- tibble(CAA = peaks_data_standard$caa[1:9], "T/C ratio" = curve)
+
+#plot the unfitted curve with the average standard measurements (no needed if it's only 1 st curve, it'll be the same)
+unfitted_curve_av <- ggplot(data=standard_df, aes(x=CAA, y=`T/C ratio`)) +
+  geom_point() +
+  scale_x_continuous(trans = 
+                       'log10') +
+  theme_minimal()
+
+
+#-----------------Fit The Curve-------------
+
+RESP <- standard_df$`T/C ratio`
+DOSE <- standard_df$CAA
+NAMES  = c("slope","lower","upper","ed50")
+#LOWERL = c(-Inf, 0, -Inf, -Inf) ?
+#UPPERL = c(Inf, 25, Inf, Inf) ?
+
+a <- drm(standard_df$`T/C ratio` ~ standard_df$CAA,
+         data = peaks_data_standard, fct = LL.4(names = NAMES),
+         robust = "median") #not sure about this method, can still adapt
+
+#Plot the standard curve made with the averages and compare with individual measurements (different colors)
+plot(a, col = "steelblue3",
+     xlab = "CAA",
+     ylab = "T/C",
+     pch = 16) 
+#If more than one standard curve, plot all points to compare
+points(peaks_data_standard$caa, peaks_data_standard$`T/C`,
+       col=factor(peaks_data_standard$curve_name),
+       pch = 16)
+legend(0.01, 2, legend=c("Standard Curve 1", 
+                         "Standard Curve 2",
+                         "Standard Curve 3", 
+                         "Average"),
+       col=c("black", "coral2", "chartreuse4", "steelblue3"),
+       pch = 16)
+
+
+#---------Delete a Data Point (If Needed)-----------------
+
+
+delete_points <- function(df, curve_number, caa_value) {
+  
+  row_number <- which(df$caa == caa_value & df$curve_name == curve_number) # Get the row number
+  
+  if (length(unique(df$curve_name)) == 2) { # Use double equal signs for comparison
+    # If there are 2 curves, replace the value you want to delete with the value from the other curve
+    
+    a <- filter(df,
+                caa == caa_value,
+                curve_name != curve_number) # Select the corresponding value from the other curve
+    df$`T/C`[row_number] <- a$`T/C` # Replace it
+    
+  } else if (length(unique(df$curve_name)) == 3) {
+    # If there are 3 curves, calculate the average of the values you want to keep
+    
+    b <- filter(df,
+                caa == caa_value,
+                curve_name != curve_number)
+    
+    b$`T/C` <- as.numeric(b$`T/C`)
+    
+    df$`T/C`[row_number] <- mean(b$`T/C`) # Replace with the average of the other values
+  } else {
+    # When there's only 1 curve, replace with NA
+    df$`T/C`[row_number] <- NA
+  }
+  
+  return(df) # Return the modified dataframe
+}
+
+peaks_data_standard <- delete_points(df = peaks_data_standard,    
+                                     curve_number = "Curve1",  #the standard curve from which you wish to delete a standard T/C value
+                                     caa_value = 316)          #the caa value corresponding to the T/C value you want to delete
+
+#repeat for as many points as needed
+
+#---------Repeat All Curve Fit Steps --------------
+#if a point was deleted in the previous step
+
+#Take the average for each measurement from each standard curve (usually 1 to 3 but can be any number of st curves)
+curve <- vector()
+for (i in 1:10) {
+  a <- peaks_data_standard %>%
+    filter(str_ends(sample_name, as.character(i)))  # Convert i to a character
+  b <- mean(a$`T/C`)
+  curve[i] <- b  # Store the mean value in the appropriate index of the vector c
+}
+
+#calculate average T/C corresponding to 0 caa
+curve[11] <- (curve[9]+curve[10])/2
+curve <- curve[-c(9,10)]
+
+standard_df <- tibble(CAA = peaks_data_standard$caa[1:9], "T/C ratio" = curve)
+
+#plot the unfitted curve with the average standard measurements (no needed if it's only 1 st curve, it'll be the same)
+unfitted_curve_av <- ggplot(data=standard_df, aes(x=CAA, y=`T/C ratio`)) +
+  geom_point() +
+  scale_x_continuous(trans = 
+                       'log10') +
+  theme_minimal()
+
+
+#Fit the curve
+
+RESP <- standard_df$`T/C ratio`
+DOSE <- standard_df$CAA
+NAMES  = c("slope","lower","upper","ed50")
+#LOWERL = c(-Inf, 0, -Inf, -Inf) ?
+#UPPERL = c(Inf, 25, Inf, Inf) ?
+
+
+a <- drm(standard_df$`T/C ratio` ~ standard_df$CAA,
+         data = peaks_data_standard, fct = LL.4(names = NAMES),
+         robust = "median")
+
+#Plot the standard curve made with the averages and compare with individual measurements (different colors)
+plot(a, col = "steelblue3",
+     xlab = "CAA",
+     ylab = "T/C",
+     pch = 16) 
+#If more than one standard curve, plot all points to compare
+points(peaks_data_standard$caa, peaks_data_standard$`T/C`,
+       col=factor(peaks_data_standard$curve_name),
+       pch = 16)
+legend(0.01, 2, legend=c("Standard Curve 1", 
+                         "Standard Curve 2",
+                         "Standard Curve 3", 
+                         "Average"),
+       col=c("black", "coral2", "chartreuse4", "steelblue3"),
+       pch = 16)
+
+
