@@ -3,17 +3,12 @@ install.packages("MASS")
 library(drc)
 library(MASS)
 
-#----------Reshape Data to Fit Curve---------
+#---------Reshape Data to Fit Curve---------
 
 #make new dataframe selecting all strips that contain a standard curve measurements (caa != NA) 
 peaks_data_standard <- peaks_data_export %>% 
   drop_na(caa) %>%
   dplyr::select(sample_name, caa, `T/C`)
-
-#make a new data frame selecting unknown test samples (caa = NA) (not sure?? check if needed later)
-peaks_data_unknown <- peaks_data_export[11:20,] %>%
-  dplyr::select(caa, `T/C`) %>%
-  drop_na(`T/C`)
 
 #name the different standard curves ("Curve1"/"Curve2"/"Curve3) 
 sequence <- rep(1:ceiling(nrow(peaks_data_standard)/10), each = 10, length.out = nrow(peaks_data_standard))
@@ -24,6 +19,8 @@ unfitted_curve <- ggplot(data=peaks_data_standard, aes(x=caa, y=`T/C`)) +
   geom_point() +
   scale_x_continuous(trans = 
                        'log10') +
+  scale_y_continuous(trans = 
+                       'log10') + #?
   theme_minimal()
 
 #Take the average for each measurement from each standard curve (usually 1 to 3 but can be any number of st curves)
@@ -46,10 +43,12 @@ unfitted_curve_av <- ggplot(data=standard_df, aes(x=CAA, y=`T/C ratio`)) +
   geom_point() +
   scale_x_continuous(trans = 
                        'log10') +
+  scale_y_continuous(trans = 
+                       'log10') +
   theme_minimal()
 
 
-#-----------------Fit The Curve-------------
+#---------Fit The Curve-------------
 
 RESP <- standard_df$`T/C ratio`
 DOSE <- standard_df$CAA
@@ -65,7 +64,8 @@ a <- drm(standard_df$`T/C ratio` ~ standard_df$CAA,
 plot(a, col = "steelblue3",
      xlab = "CAA",
      ylab = "T/C",
-     pch = 16) 
+     pch = 16,
+     log = "xy") 
 #If more than one standard curve, plot all points to compare
 points(peaks_data_standard$caa, peaks_data_standard$`T/C`,
        col=factor(peaks_data_standard$curve_name),
@@ -80,16 +80,15 @@ legend(0.01, 2, legend=c("Standard Curve 1",
 
 #---------Delete a Data Point (If Needed)-----------------
 
-
-delete_points <- function(df, curve_number, caa_value) {
+delete_points <- function(df, curve_number, standard_point) {
   
-  row_number <- which(df$caa == caa_value & df$curve_name == curve_number) # Get the row number
+  row_number <- which(str_detect(df$sample_name, standard_point) & df$curve_name == curve_number) # Get the row number
   
-  if (length(unique(df$curve_name)) == 2) { # Use double equal signs for comparison
+  if (length(unique(df$curve_name)) == 2) { 
     # If there are 2 curves, replace the value you want to delete with the value from the other curve
     
     a <- filter(df,
-                caa == caa_value,
+                str_detect(sample_name, standard_point),
                 curve_name != curve_number) # Select the corresponding value from the other curve
     df$`T/C`[row_number] <- a$`T/C` # Replace it
     
@@ -97,7 +96,7 @@ delete_points <- function(df, curve_number, caa_value) {
     # If there are 3 curves, calculate the average of the values you want to keep
     
     b <- filter(df,
-                caa == caa_value,
+                str_detect(sample_name, standard_point),
                 curve_name != curve_number)
     
     b$`T/C` <- as.numeric(b$`T/C`)
@@ -113,7 +112,7 @@ delete_points <- function(df, curve_number, caa_value) {
 
 peaks_data_standard <- delete_points(df = peaks_data_standard,    
                                      curve_number = "Curve1",  #the standard curve from which you wish to delete a standard T/C value
-                                     caa_value = 316)          #the caa value corresponding to the T/C value you want to delete
+                                     standard_point = "9")          #the standard point number you want to delete (eg "8" if it's the 8th point)
 
 #repeat for as many points as needed
 
@@ -171,5 +170,36 @@ legend(0.01, 2, legend=c("Standard Curve 1",
                          "Average"),
        col=c("black", "coral2", "chartreuse4", "steelblue3"),
        pch = 16)
+#REPEAT EACH TIME YOU DELETE A POINT FROM THE STANDARD CURVE AND CHECK THE FITTING
 
+
+#---------Unknown Test Samples CAA Prediction-----------
+
+#make a new data frame selecting unknown test samples 
+peaks_data_unknown <- peaks_data_export %>%
+  filter(str_detect(sample_name, "test_sample"))
+
+#predict caa value from T/C value
+test_sample <- drc::ED(object = a, respLev = peaks_data_unknown$`T/C`, type = "absolute")
+
+results_df <- cbind(peaks_data_unknown, test_sample) %>%
+  select(strip, `T/C`, Estimate, `Std. Error`) 
+rownames(results_df) <- NULL
+colnames(results_df) <- c("Strip Number", "T/C Ratio", 
+                          "CAA Estimate", "Std. Error")
+
+results_df$Result <- NA #make new column for printing the result
+lower_st <- tail(which(!is.na(curve)), 1)
+
+results_df <- results_df %>%
+  mutate(Result = case_when(
+    is.nan(`CAA Estimate`) & `T/C Ratio` > curve[1] ~ "above limit of detection",
+    is.nan(`CAA Estimate`) & `T/C Ratio` < curve[lower_st] ~ "below limit of detection/negative",
+    `CAA Estimate` > 1 ~ "positive",
+    `CAA Estimate` < 1 ~ "negative"
+  ))
+
+
+
+  
 
