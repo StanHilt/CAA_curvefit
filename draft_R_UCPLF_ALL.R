@@ -1,4 +1,4 @@
-setwd("R:/Eva Iliopoulou/UCPLFCAA/20230721")
+setwd("R:/Eva Iliopoulou/UCPLFCAA/Data")
 
 #----------- Install Packages ------
 
@@ -27,7 +27,7 @@ library(cowplot)
 #----------- Manual Input ------
 
 file_name <- "UPC-LF CAA 20 strips_SCAA500 USING OLD UCP VIAL 12072023.xlsx"
-test_samples <- c(11) #samples that are NOT part of the standard curve
+test_samples <- 11 #samples that are NOT part of the standard curve
 
 #----------- Load Data -------
 
@@ -42,6 +42,7 @@ df <- read_excel(file_name, sheet = "Well results",
 df_peaks <- function(x) {
   df_m <- dplyr::filter(x, x$...1 %in% "line1") 
   df_m <- df_m[,-c(1:12)] 
+  df_m <- t(df_m)
 }
 
 #extract strip line numbers/position
@@ -53,7 +54,8 @@ extract_stripline <- function(x) {
     select(-1) %>%
     t() %>%
     as.numeric() %>%
-    as.vector()
+    as.vector() %>%
+    t()
 }
 
 #create tidy data frame
@@ -193,12 +195,10 @@ auc_calculation <- function(x, y, z, peak) {   #x = the df with the smooth measu
 peaks <- df_peaks(df) 
 
 strip_line <- extract_stripline(df)
-strip_line <- t(strip_line) #I have to check this in the function still
 df_tidy <- reshape_df(df, strip_line) # create tidy dataframe with raw data 
 
 #----------- Smooth Peak Data -----
 
-peaks <- t(peaks)
 p <- 5 #choose p factor for the rollmean function
 
 peaks_smooth <- data.frame(matrix(nrow=96,ncol=ncol(peaks))) #make empty dataframe to fill in with the smooth data, length depending on the p factor
@@ -235,16 +235,15 @@ df_tidy_smooth <- df_tidy_smooth %>%  #Should this go into manual input?
     sample_name == "standard_8" ~ 0.3,
     sample_name == "standard_9" ~ 0,
     sample_name == "standard_10" ~ 0,
-    #    sample_name == "standard_11" ~ 1000,
-    #   sample_name == "standard_12" ~ 316,
-    #  sample_name == "standard_13" ~ 100,
-    # sample_name == "standard_14" ~ 31.6,
+#        sample_name == "standard_11" ~ 1000,
+ #      sample_name == "standard_12" ~ 316,
+  #    sample_name == "standard_13" ~ 100,
+   #  sample_name == "standard_14" ~ 31.6,
     #sample_name == "standard_15" ~ 10,
-    #    sample_name == "standard_16" ~ 3.16,
-    #   sample_name == "standard_17" ~ 1,
-    #  sample_name == "standard_18" ~ 0.3,
-    # sample_name == "standard_19" ~ 0,
-    #sample_name == "standard_20" ~ 0,
+     # sample_name == "standard_17" ~ 1,
+      #sample_name == "standard_18" ~ 0.3,
+#     sample_name == "standard_19" ~ 0,
+ #   sample_name == "standard_20" ~ 0,
     TRUE ~ NA  
   ))
 
@@ -276,7 +275,6 @@ dev.off()
 
 peaks_smooth <- as.data.frame(peaks_smooth) #or dont make it a tibble earlier, [,i] doesnt work (I still have to arrange this)
 
-
 peaks_list <- vector("list", ncol(peaks_smooth))
 for (i in seq_along(peaks_smooth)) {
   output <- pracma::findpeaks(peaks_smooth[,i], 
@@ -290,6 +288,7 @@ for (i in seq_along(peaks_smooth)) {
 for (i in seq_along(peaks_list)) { #optional, to quickly check the peaks 
   print(peaks_list[[i]])
 }
+
 
 remove(i, output)
 
@@ -340,7 +339,7 @@ for (i in 1:ncol(peaks_smooth)) {
   plots_list[[i]] <- p
   
 }
-#all_peaks_grid <- plot_grid(plotlist = plots_list, ncol = 4) #option 1: all peaks in a grid
+all_peaks_grid <- plot_grid(plotlist = plots_list, ncol = 4) #option 1: all peaks in a grid
 #print(all_peaks_grid)
 
 for (p in plots_list) { #option 2: each peak in a different pdf page
@@ -357,9 +356,11 @@ peaks_df <- extract_peak_data(peaks_list)
 
 peaks_data <- merge_peak_data(df_tidy_smooth, peaks_df)
 
+
 remove(peaks_df)
 
 #----------- Calculate AUC for Each Peak (T and C)-------
+
 
 auc_T <- auc_calculation(x = peaks_smooth, 
                          y = peaks_data, 
