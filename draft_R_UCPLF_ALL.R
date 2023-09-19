@@ -1,4 +1,4 @@
-setwd("R:/Eva Iliopoulou/UCPLFCAA/Data")
+setwd("R:/Eva Iliopoulou/UCPLFCAA/Data/")
 
 #----------- Install Packages ------
 
@@ -26,8 +26,8 @@ library(cowplot)
 
 #----------- Manual Input ------
 
-file_name <- "UPC-LF CAA 20 strips_SCAA500 USING OLD UCP VIAL 12072023.xlsx"
-test_samples <- 11 #samples that are NOT part of the standard curve
+file_name <- "Two standard curves.xlsx"
+test_samples <- NA #samples that are NOT part of the standard curve
 
 #----------- Load Data -------
 
@@ -199,20 +199,21 @@ df_tidy <- reshape_df(df, strip_line) # create tidy dataframe with raw data
 
 #----------- Smooth Peak Data -----
 
-p <- 5 #choose p factor for the rollmean function
+p <- 2 #choose p factor for the rollmean function
 
-peaks_smooth <- data.frame(matrix(nrow=96,ncol=ncol(peaks))) #make empty dataframe to fill in with the smooth data, length depending on the p factor
+peaks_smooth <- data.frame(matrix(nrow=99,ncol=ncol(peaks))) #make empty dataframe to fill in with the smooth data, length depending on the p factor
 
 for (i in seq_along(peaks)) {
   output <- rollmean(peaks[,i], p)
   peaks_smooth[,i] <- output
 }
 
+
 remove(i, output, p)
 
 #create tidy dataframe with smooth data 
 length(strip_line)
-strip_line <- strip_line[-c(97:100)] #the bigger the p, the more points along the measurement are "lost"
+strip_line <- strip_line[-100] #the bigger the p, the more points along the measurement are "lost"
 df_tidy_smooth <- reshape_df_smooth(peaks_smooth, strip_line)
 
 df_tidy_smooth <- df_tidy_smooth %>%
@@ -237,13 +238,14 @@ df_tidy_smooth <- df_tidy_smooth %>%  #Should this go into manual input?
     sample_name == "standard_10" ~ 0,
 #        sample_name == "standard_11" ~ 1000,
  #      sample_name == "standard_12" ~ 316,
-  #    sample_name == "standard_13" ~ 100,
+  #   sample_name == "standard_13" ~ 100,
    #  sample_name == "standard_14" ~ 31.6,
     #sample_name == "standard_15" ~ 10,
-     # sample_name == "standard_17" ~ 1,
-      #sample_name == "standard_18" ~ 0.3,
-#     sample_name == "standard_19" ~ 0,
- #   sample_name == "standard_20" ~ 0,
+#    sample_name == "standard_16" ~ 3.16,
+ #    sample_name == "standard_17" ~ 1,
+  #    sample_name == "standard_18" ~ 0.3,
+   #  sample_name == "standard_19" ~ 0,
+    #sample_name == "standard_20" ~ 0,
     TRUE ~ NA  
   ))
 
@@ -272,14 +274,14 @@ dev.off()
 
 
 #----------- Peak Detection in Smooth Data ------
-
-peaks_smooth <- as.data.frame(peaks_smooth) #or dont make it a tibble earlier, [,i] doesnt work (I still have to arrange this)
+strip_line_cut <- strip_line[-c(85:100)]
+peaks_smooth <- as.data.frame(peaks_smooth[-c(85:100),]) #or dont make it a tibble earlier, [,i] doesnt work (I still have to arrange this)
 
 peaks_list <- vector("list", ncol(peaks_smooth))
 for (i in seq_along(peaks_smooth)) {
   output <- pracma::findpeaks(peaks_smooth[,i], 
-                              minpeakdistance = 20, 
-                              nups = 3, ndowns = 2, 
+                              minpeakdistance = 13, 
+                              nups = 3, ndowns = 3, 
                               npeaks = 2,
                               sortstr = FALSE)
   peaks_list[[i]] <- output
@@ -297,9 +299,9 @@ peaks_list <- lapply(peaks_list, order_peak_matrix)
 
 #----------- Check All Graphs with Peak Points -------
 
-pdf_peaks_name <- paste0("peaks_", file_name, ".pdf")
+#pdf_peaks_name <- paste0("peaks_", file_name, ".pdf")
 
-pdf(pdf_peaks_name) 
+#pdf(pdf_peaks_name) 
 
 plots_list <- list()
 
@@ -364,11 +366,11 @@ remove(peaks_df)
 
 auc_T <- auc_calculation(x = peaks_smooth, 
                          y = peaks_data, 
-                         z = strip_line, 
+                         z = strip_line_cut, 
                          peak = "T")
 auc_C <- auc_calculation(x = peaks_smooth, 
                          y = peaks_data, 
-                         z = strip_line, 
+                         z = strip_line_cut, 
                          peak = "C")
 
 peaks_data <- cbind(peaks_data, auc_T, auc_C)
@@ -398,6 +400,7 @@ ggplot(data=peaks_data, aes(x=caa, y=`T/C`)) +
   geom_point() +
   scale_x_continuous(trans = 
                        'log10') +
+  scale_y_continuous(trans = 'log10') +
   geom_line()
 
 dev.off()

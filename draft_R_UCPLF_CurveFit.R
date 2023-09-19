@@ -112,7 +112,7 @@ delete_points <- function(df, curve_number, standard_point) {
 
 peaks_data_standard <- delete_points(df = peaks_data_standard,    
                                      curve_number = "Curve1",  #the standard curve from which you wish to delete a standard T/C value
-                                     standard_point = "9")          #the standard point number you want to delete (eg "8" if it's the 8th point)
+                                     standard_point = "8")          #the standard point number you want to delete (eg "8" if it's the 8th point)
 
 #repeat for as many points as needed
 
@@ -127,6 +127,8 @@ for (i in 1:10) {
   b <- mean(a$`T/C`)
   curve[i] <- b  # Store the mean value in the appropriate index of the vector c
 }
+
+peaks_data_standard
 
 #calculate average T/C corresponding to 0 caa
 curve[11] <- (curve[9]+curve[10])/2
@@ -200,5 +202,74 @@ results_df <- results_df %>%
   ))
 
 
+#---------5 Parameter Curve-------------
 
+#5PL 
+
+
+#names = c("b", "c", "d", "e", "f")
+
+RESP <- standard_df$`T/C ratio`
+DOSE <- standard_df$CAA
+NAMES  = c("b", "c", "d", "e", "f")
+
+#b = Minimum asymptote. In a bioassay where you have a standard curve, this can be thought of as the response value at 0 standard concentration.
+#c = Hill's slope. The Hill's slope refers to the steepness of the curve. It could either be positive or negative.
+#d = Inflection point. The inflection point is defined as the point on the curve where the curvature changes direction or signs. C is the concentration of analyte where y=(D-A)/2.
+#e = Maximum asymptote. In an bioassay where you have a standard curve, this can be thought of as the response value for infinite standard concentration.
+#f = Asymmetry factor. When E=1 we have a symmetrical curve around inflection point and so we have a four-parameters logistic equation.
+
+a_5 <- drm(standard_df$`T/C ratio` ~ standard_df$CAA,
+           data = peaks_data_standard, fct = LL.5(fixed = c(NA, NA, NA, NA, NA), names = NAMES),
+           robust = "median")
+
+plot(a_5, col = "steelblue3",
+     xlab = "CAA",
+     ylab = "T/C",
+     pch = 16,
+     log = "xy") 
+
+
+#Residuals comparison try
+
+
+res_a5 <- residuals(a_5, typeRes = "working")
+res_a <- residuals(a, typeRes = "working")
+
+residuals_df <- cbind(res_a, res_a5)
+#<- c("caa_1000", "caa_316", "caa_100", "caa_31.5", "caa_10",
+#               "caa_3.16", 
+#               "caa_1",
+#             "caa_0.3", 
+#            "caa_0")
+
+
+residuals_df$caa_point <- c("caa_1000", "caa_316", "caa_100", "caa_31.5", "caa_10",
+                            "caa_3.16", 
+                            "caa_1",
+                            "caa_0.3", 
+                            "caa_0")
+
+
+residuals_df <- pivot_longer(residuals_df, cols = 1:2, names_to ="method",
+                             values_to = "residual value")
+
+residuals_df <- as.data.frame(residuals_df)
+
+
+
+
+
+df_residuals <- residuals_df
+df_residuals$`residual value`
+
+ggplot2::ggplot(data = df_residuals, mapping = aes(x = caa_point,
+                                                   y = `residual value`,
+                                                   fill = method)) +
+  geom_bar(stat = "identity", position=position_dodge())
+
+
+
+
+  
 
