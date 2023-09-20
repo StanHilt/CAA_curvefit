@@ -236,24 +236,24 @@ df_tidy_smooth <- df_tidy_smooth %>%  #Should this go into manual input?
     sample_name == "standard_8" ~ 0.3,
     sample_name == "standard_9" ~ 0,
     sample_name == "standard_10" ~ 0,
-#        sample_name == "standard_11" ~ 1000,
- #      sample_name == "standard_12" ~ 316,
-  #   sample_name == "standard_13" ~ 100,
-   #  sample_name == "standard_14" ~ 31.6,
-    #sample_name == "standard_15" ~ 10,
-#    sample_name == "standard_16" ~ 3.16,
- #    sample_name == "standard_17" ~ 1,
-  #    sample_name == "standard_18" ~ 0.3,
-   #  sample_name == "standard_19" ~ 0,
-    #sample_name == "standard_20" ~ 0,
+        sample_name == "standard_11" ~ 1000,
+       sample_name == "standard_12" ~ 316,
+    sample_name == "standard_13" ~ 100,
+     sample_name == "standard_14" ~ 31.6,
+    sample_name == "standard_15" ~ 10,
+    sample_name == "standard_16" ~ 3.16,
+     sample_name == "standard_17" ~ 1,
+      sample_name == "standard_18" ~ 0.3,
+     sample_name == "standard_19" ~ 0,
+    sample_name == "standard_20" ~ 0,
     TRUE ~ NA  
   ))
 
 #visualize all smooth and raw peaks overlaying to compare
 
-pdf_smoothpeaks_name <- paste0("raw_vs_smooth_peaks", file_name, ".pdf")
+#pdf_smoothpeaks_name <- paste0("raw_vs_smooth_peaks", file_name, ".pdf")
 
-pdf(pdf_smoothpeaks_name) #I have to fix this to automatically take the file_name
+#pdf(pdf_smoothpeaks_name) #I have to fix this to automatically take the file_name
 
 peaks_graph_smooth <- ggplot2::ggplot() + 
   ggplot2::geom_line(data = df_tidy_smooth, 
@@ -270,7 +270,7 @@ peaks_graph_smooth <- ggplot2::ggplot() +
                               labels = c("Raw Data", "Smooth Data"))
 
 print(peaks_graph_smooth)
-dev.off()
+#dev.off()
 
 
 #----------- Peak Detection in Smooth Data ------
@@ -380,9 +380,9 @@ peaks_data$"T/C" <- peaks_data$auc_T/peaks_data$auc_C
 peaks_data_export <- select(peaks_data, sample_name, 
                             strip, caa, auc_T, auc_C, `T/C`)
 
-peaks_data_filename <- paste0("peaks_data_", file_name, ".xlsx")
+#peaks_data_filename <- paste0("peaks_data_", file_name, ".xlsx")
 
-write.xlsx(peaks_data_export, peaks_data_filename)
+#write.xlsx(peaks_data_export, peaks_data_filename)
 
 remove(df, df_tidy, df_tidy_smooth, peaks, peaks_list, 
        peaks_smooth, strip_line, auc_C, auc_T)
@@ -392,18 +392,17 @@ remove(df, df_tidy, df_tidy_smooth, peaks, peaks_list,
 
 #quickly check standard curve without fitting
 
-pdf_curve_name <- paste0("unfitted_curve_", file_name, ".pdf")
+#pdf_curve_name <- paste0("unfitted_curve_", file_name, ".pdf")
 
-pdf(pdf_curve_name) #I have to fix this to automatically take the file_name
+#pdf(pdf_curve_name) #I have to fix this to automatically take the file_name
 
 ggplot(data=peaks_data, aes(x=caa, y=`T/C`)) +
   geom_point() +
   scale_x_continuous(trans = 
                        'log10') +
-  scale_y_continuous(trans = 'log10') +
-  geom_line()
+  scale_y_continuous(trans = 'log10') 
 
-dev.off()
+#dev.off()
 
 remove(file_name, pdf_curve_name, pdf_peaks_name, pdf_smoothpeaks_name, peaks_data_filename,
        plots_list, peaks_graph_smooth)
