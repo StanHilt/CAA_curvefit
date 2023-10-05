@@ -14,8 +14,8 @@ library(baseline)
 
 #----------- Manual Input ------
 
-file_name <- "230726, SCAA20, ITG soldier samples 21-30, STD 1-10.xlsx"
-test_samples <- c(11,12,13,14,15,16,17,18,19,20) #samples that are NOT part of the standard curve
+file_name <- "211115, SCAA20 Dried Nano UCP batch 211110.xlsx"
+test_samples <- c() #samples that are NOT part of the standard curve
 
 #----------- Load Data -------
 
@@ -179,7 +179,7 @@ auc_calculation <- function(x, y, z, peak) {   #x = the df with the smooth measu
 background_correction <- function(x) {
   x_cleaned <- na.omit(x)
   df <- as.data.frame(t(x_cleaned))
-  df_corrected <- baseline.rollingBall(as.matrix(df), 6, 2)$corrected
+  df_corrected <- baseline.rollingBall(as.matrix(df), wm = 8, ws = 2)$corrected
   df_corrected_abs <- abs(df_corrected)
   df_final <- as.data.frame(t(df_corrected_abs))
   
@@ -198,12 +198,11 @@ df_tidy <- reshape_df(df, strip_line) # create tidy dataframe with raw data
 
 peaks <- t(peaks)
 N <- ncol(peaks) #count strips
-p <- 1 #choose p factor for the rollmean function
 
 peaks_smooth <- data.frame(matrix(nrow=nrow(peaks),ncol=ncol(peaks))) #make empty dataframe to fill in with the smooth data, length depending on the p factor
 
 for (i in seq_along(peaks)) { 
-  if (i<=N) { output <- rollmean(peaks[,i], p, na.pad = TRUE)
+  if (i<=N) { output <-peaks[,i]
   peaks_smooth[,i] <- output
 }
   }
@@ -272,9 +271,9 @@ peaks_graph_smooth <- ggplot2::ggplot() +
                 y = "Smooth Signal Intensity") +
   ggplot2::scale_color_manual(values = c("black", "red"),
                               labels = c("Raw Data", "Smooth Data"))
-
-print(peaks_graph_smooth)
 dev.off()
+print(peaks_graph_smooth)
+
 
 
 #----------- Peak Detection in Smooth Data ------
@@ -286,9 +285,9 @@ peaks_list <- vector("list", ncol(peaks_smooth))
 for (i in seq_along(peaks_smooth)) {
   output <- pracma::findpeaks(peaks_smooth[,i], 
                               minpeakdistance = 15,
-                              nups = 2, ndowns = 3, 
+                              nups = 3, ndowns = 3, 
                               npeaks = 2,
-                              sortstr = FALSE)
+                              sortstr = TRUE)
   peaks_list[[i]] <- output
 }
 
@@ -296,7 +295,7 @@ for (i in seq_along(peaks_list)) { #optional, to quickly check the peaks
   print(peaks_list[[i]])
 }
 
-remove(i, output)
+#remove(i, output)
 
 # Reorder each matrix of the peak list so that the test peak is expressed first
 peaks_list <- lapply(peaks_list, order_peak_matrix)
