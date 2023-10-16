@@ -1,16 +1,16 @@
-#----------- Install Packages ------
+#----------- Load Packages ------
 library(readxl)
 library(pracma)
 library(openxlsx)
-library(tidyverse)
-library(naniar)
-library(janitor)
-library(zoo)
+library(tidyr)
 library(DescTools)
 library(dplyr)
 library(ggplot2)
 library(cowplot)
 library(baseline)
+library(stringr)
+library(drc)
+library(MASS)
 
 #----------- Load Functions  ------
 
@@ -25,12 +25,12 @@ df_peaks <- function(x) {
 
 extract_stripline <- function(x) { 
   strip_line <- x %>%
-    select(-c(2:12)) %>%
-    filter(...1 == "Strip 1") %>%
-    select(-1) %>%
-    t() %>%
+    dplyr::select(-c(2:12)) %>%
+    dplyr::filter(...1 == "Strip 1") %>%
+    dplyr::select(-1) %>%
     as.numeric() %>%
-    as.vector()
+    as.vector() %>%
+    t()
 }
 
 #create tidy data frame
@@ -40,12 +40,12 @@ reshape_df <- function(x, y) {    #x is the dataframe, y is the strip line numbe
   df_m <- df_m[,-c(1:12)]  
   df_m[nrow(df_m) + 1,] <- y
   df_m <- t(df_m)
-  df_m <- as_tibble(df_m)
+  df_m <- dplyr::as_tibble(df_m)
   n_position <- ncol(df_m) - 1
-  df_long <- pivot_longer(df_m, cols = 1:n_position, 
+  df_long <- tidyr::pivot_longer(df_m, cols = 1:n_position, 
                           names_to = "strip", 
                           values_to = "measurement")
-  df_long <- arrange(df_long, strip)
+  df_long <- dplyr::arrange(df_long, strip)
   last_col <- paste("V", ncol(df_m), sep = "")
   df_long <- df_long %>% 
     rename("position" = last_col) 
@@ -58,20 +58,21 @@ reshape_df <- function(x, y) {    #x is the dataframe, y is the strip line numbe
 
 reshape_df_smooth <- function(x, y) { #x = dataframe of smooth peaks, y = strip line 
   strip_line_smooth <- y
-  strip_line_smooth <- as.tibble(strip_line_smooth)
+  strip_line_smooth <- dplyr::as_tibble(strip_line_smooth)
   peaks_smooth <- cbind(x, strip_line_smooth)
-  peaks_smooth <- as_tibble(peaks_smooth)
+  peaks_smooth <- dplyr::as_tibble(peaks_smooth)
   n_position <- ncol(peaks_smooth) - 1
-  df_long_smooth <- pivot_longer(peaks_smooth, cols = 1:n_position, 
+  df_long_smooth <- tidyr::pivot_longer(peaks_smooth, cols = 1:n_position, 
                                  names_to = "strip", 
                                  values_to = "measurement")
-  df_long_smooth <- arrange(df_long_smooth, strip)
+  df_long_smooth <- dplyr::arrange(df_long_smooth, strip)
   df_long_smooth <- df_long_smooth %>% 
     rename("position" = "value")
   df_long_smooth$strip <- gsub("V", "", df_long_smooth$strip) %>%
     as.numeric(df_long_smooth$strip)
   print(df_long_smooth)
 }
+
 
 #reorder each matrix on the peak list so that the test peak is expressed first
 
@@ -87,7 +88,7 @@ order_peak_matrix <- function(matrix) {
 
 extract_peak_data <- function(x) {
   # Create an empty tibble with desired column names
-  test_df <- tibble(
+  test_df <- dplyr::tibble(
     height_T = NA, 
     max_T = NA, 
     start_T = NA, 
@@ -117,22 +118,24 @@ extract_peak_data <- function(x) {
     test_df[row_index + 1, "end_C"] <- current_df[2, 4]
   }
   
+
   
   # Group the rows in test_df by pairs
   test_df <- test_df %>%
-    group_by(grp = (row_number() - 1) %/% 2) %>%
-    summarize_all(~if (is.numeric(.)) {
+    dplyr::group_by(grp = (row_number() - 1) %/% 2) %>%
+    dplyr::summarize_all(~if (is.numeric(.)) {
       sum(., na.rm = TRUE)
     } else {
       first(.)
     }) %>%
-    ungroup() %>%
-    select(-grp)
+    dplyr::ungroup() %>%
+    dplyr::select(-grp)
 }
+
 merge_peak_data <- function(x, y){ #x = the tidy dataframe, y = the dataframe with the peaks data calculations (start, max ,end) 
   df_merged <- x %>% 
-    select(-c(position, measurement))
-  df_merged <- distinct(df_merged)
+    dplyr::select(-c(position, measurement))
+  df_merged <- dplyr::distinct(df_merged)
   df_merged <- cbind(df_merged, y)
 }
 
@@ -157,7 +160,7 @@ auc_calculation <- function(x, y, z, peak) {   #x = the df with the smooth measu
     col <- colnames(x)[col_index]
     
     # Perform auc calculations #x=z y=x love it 'SH'
-    c <- AUC(x = z, y = x[[col]], from = z[a], to = z[b], 
+    c <- DescTools::AUC(x = z, y = x[[col]], from = z[a], to = z[b], 
              absolutearea = TRUE, method = "trapezoid")
     c_vector <- append(c_vector, c)
   }
@@ -165,11 +168,12 @@ auc_calculation <- function(x, y, z, peak) {   #x = the df with the smooth measu
   return(c_vector)
 }
 
+
 #much needed baseline correction for weird strips it's terrible now but will be fixed
 background_correction <- function(x) {
   x_cleaned <- na.omit(x)
   df <- as.data.frame(t(x_cleaned))
-  df_corrected <- baseline.medianWindow(as.matrix(df), 9, 3)$corrected
+  df_corrected <- baseline::baseline.medianWindow(as.matrix(df), 6, 2)$corrected
   df_corrected_abs <- abs(df_corrected)
   df_final <- as.data.frame(t(df_corrected_abs))
   
@@ -177,33 +181,57 @@ background_correction <- function(x) {
 }
 
 
-
-
-
-
-
-
-
-
-
+#If needed, delete outliers from the standard curve
+delete_points <- function(df, curve_number, standard_point) {
+  
+  row_number <- which(stringr::str_detect(df$sample_name, standard_point) & df$curve_name == curve_number) # Get the row number
+  
+  if (length(unique(df$curve_name)) == 2) { 
+    # If there are 2 curves, replace the value you want to delete with the value from the other curve
+    
+    a <- dplyr::filter(df,
+                       stringr::str_detect(sample_name, 
+                                  standard_point),
+                       curve_name != curve_number) # Select the corresponding value from the other curve
+    df$`T/C`[row_number] <- a$`T/C` # Replace it
+    
+  } else if (length(unique(df$curve_name)) == 3) {
+    # If there are 3 curves, calculate the average of the values you want to keep
+    
+    b <- dplyr::filter(df,
+                       stringr::str_detect(sample_name, 
+                                  standard_point),
+                       curve_name != curve_number)
+    
+    b$`T/C` <- as.numeric(b$`T/C`)
+    
+    df$`T/C`[row_number] <- mean(b$`T/C`) # Replace with the average of the other values
+  } else {
+    # When there's only 1 curve, replace with NA
+    df$`T/C`[row_number] <- NA
+  }
+  
+  return(df) # Return the modified dataframe
+}
 
 
 
 #----------- Manual Input ------
 
-file_name <- "UPC-LF CAA 20 strips_SCAA500 USING OLD UCP VIAL 12072023.xlsx"
+file_name <- "Two standard curves"
 test_samples <- NA #samples that are NOT part of the standard curve
 
 #----------- Load Data -------
 
-df <- read_excel(file_name, sheet = "Well results",
-                 col_names = FALSE)
+df <- readxl::read_excel(paste0(file_name, ".xlsx"), 
+                         sheet = "Well results",
+                         col_names = FALSE)
 
 #----------- Reshape Data from Reader Output -------
 peaks <- df_peaks(df) 
 
 strip_line <- extract_stripline(df)
-strip_line <- t(strip_line) #I have to check this in the function still
+
 df_tidy <- reshape_df(df, strip_line) # create tidy dataframe with raw data 
 
 
@@ -214,24 +242,27 @@ N <- ncol(peaks) #count strips
 
 peaks_smooth <- peaks
 
-peaks_smooth <- na.omit(peaks_smooth)
+peaks_smooth <- stats::na.omit(peaks_smooth)
 peaks_smooth <- background_correction(peaks_smooth)
 
 strip_line <- as.numeric(strip_line)
 
+#Make tidy data format dataframe from smooth data after baseline correction
 df_tidy_smooth <- reshape_df_smooth(peaks_smooth, strip_line)
 
-
 df_tidy_smooth <- df_tidy_smooth %>%
-  mutate(sample_id = if_else(strip %in% test_samples, "test_sample", "standard")) %>%
-  arrange(strip) %>%
-  unite(sample_id, strip, col = "sample_name", remove = FALSE) 
+  dplyr::mutate(sample_id = if_else(strip %in% test_samples, 
+                                    "test_sample", "standard")) %>%
+  dplyr::arrange(strip) %>%
+  tidyr::unite(sample_id, strip, 
+               col = "sample_name", 
+               remove = FALSE) 
 
-remove(test_samples)
+remove(test_samples, N)
 
 df_tidy_smooth$caa <- NA
 df_tidy_smooth <- df_tidy_smooth %>%  #Should this go into manual input?
-  mutate(caa = case_when(
+  dplyr::mutate(caa = case_when(
     sample_name == "standard_1" ~ 1000,
     sample_name == "standard_2" ~ 316,
     sample_name == "standard_3" ~ 100,
@@ -242,32 +273,36 @@ df_tidy_smooth <- df_tidy_smooth %>%  #Should this go into manual input?
     sample_name == "standard_8" ~ 0.3,
     sample_name == "standard_9" ~ 0,
     sample_name == "standard_10" ~ 0,
-    #    sample_name == "standard_11" ~ 1000,
-    #   sample_name == "standard_12" ~ 316,
-    #  sample_name == "standard_13" ~ 100,
-    # sample_name == "standard_14" ~ 31.6,
-    #sample_name == "standard_15" ~ 10,
-    #    sample_name == "standard_16" ~ 3.16,
-    #   sample_name == "standard_17" ~ 1,
-    #  sample_name == "standard_18" ~ 0.3,
-    # sample_name == "standard_19" ~ 0,
-    #sample_name == "standard_20" ~ 0,
+        sample_name == "standard_11" ~ 1000,
+       sample_name == "standard_12" ~ 316,
+      sample_name == "standard_13" ~ 100,
+     sample_name == "standard_14" ~ 31.6,
+    sample_name == "standard_15" ~ 10,
+        sample_name == "standard_16" ~ 3.16,
+       sample_name == "standard_17" ~ 1,
+      sample_name == "standard_18" ~ 0.3,
+     sample_name == "standard_19" ~ 0,
+    sample_name == "standard_20" ~ 0,
     TRUE ~ NA  
   ))
 
 
 #visualize all smooth and raw peaks overlaying to compare
 
-#pdf_smoothpeaks_name <- paste0("raw_vs_smooth_peaks", file_name, ".pdf")
+pdf_smoothpeaks_name <- paste0("raw_vs_smooth_peaks", file_name, ".pdf")
 
-#pdf(pdf_smoothpeaks_name) #I have to fix this to automatically take the file_name
+pdf(pdf_smoothpeaks_name) #I have to fix this to automatically take the file_name
 
 peaks_graph_smooth <- ggplot2::ggplot() + 
   ggplot2::geom_line(data = df_tidy_smooth, 
-                     mapping = aes(x = position, y = measurement, color = "Smooth Data"),
+                     mapping = aes(x = position, 
+                                   y = measurement, 
+                                   color = "Smooth Data"),
                      group = 1, linetype = "solid", linewidth = 0.3) +
   ggplot2::geom_line(data = df_tidy, 
-                     mapping = aes(x = position, y = measurement, color = "Raw Data"),
+                     mapping = aes(x = position, 
+                                   y = measurement, 
+                                   color = "Raw Data"),
                      group = 1, linetype = "solid", linewidth = 0.1) +
   ggplot2::facet_wrap(~ strip) +
   ggplot2::theme_light() +
@@ -277,17 +312,15 @@ peaks_graph_smooth <- ggplot2::ggplot() +
                               labels = c("Raw Data", "Smooth Data"))
 
 print(peaks_graph_smooth)
-#dev.off()
-
-#OK TILL HERE! CHECK THE REST
-
+dev.off()
+remove(pdf_smoothpeaks_name)
 #----------- Peak Detection in Smooth Data ------ DOES NOT WORK, RECHECK
 
 peaks_list <- vector("list", ncol(peaks_smooth))
-for (i in seq_along(peaks_smooth)) {
+for (i in seq_along(peaks_smooth[-c(75:112),])) {
   output <- pracma::findpeaks(peaks_smooth[,i], 
-                              minpeakdistance = 13, 
-                              nups = 2, ndowns = 2, #THIS MAKES A DIFFERENCE, RECHECK
+                              minpeakdistance = 15, 
+                              nups = 2, ndowns = 3, #THIS MAKES A DIFFERENCE, RECHECK
                               npeaks = 2,
                               sortstr = FALSE)
   peaks_list[[i]] <- output
@@ -301,13 +334,14 @@ for (i in seq_along(peaks_list)) { #optional, to quickly check the peaks
 remove(i, output)
 
 # Reorder each matrix of the peak list so that the test peak is expressed first
-peaks_list <- lapply(peaks_list, order_peak_matrix)
+peaks_list <- lapply(peaks_list, 
+                     order_peak_matrix)
 
 #----------- Check All Graphs with Peak Points -------
 
-#pdf_peaks_name <- paste0("peaks_", file_name, ".pdf")
+pdf_peaks_name <- paste0("peaks_", file_name, ".pdf")
 
-#pdf(pdf_peaks_name) 
+pdf(pdf_peaks_name) 
 
 plots_list <- list()
 
@@ -316,39 +350,41 @@ for (i in 1:ncol(peaks_smooth)) {
   peak_test <- peaks_list[[i]]
   
   # Separate the dataframe containing the group with the corresponding number
-  df_test <- filter(df_tidy_smooth, 
+  df_test <- dplyr::filter(df_tidy_smooth, 
                     strip == i)
   # Convert peak_test and peak_points to simple vectors
   peak_test <- as.vector(peak_test)
   
   # Create a plot for the current number and store it in the list
-  p <- ggplot(df_test, aes(x = position, 
+  p <- ggplot2::ggplot(df_test, aes(x = position, 
                            y = measurement)) +
-    geom_line(linewidth = 0.5) +
-    geom_point(data = df_test[peak_test, ], 
+    ggplot2::geom_line(linewidth = 0.5) +
+    ggplot2::geom_point(data = df_test[peak_test, ], 
                color = "red",
                size = 1.2) +
-    labs(title = paste("strip", i),
+    ggplot2::labs(title = paste("strip", i),
          x = "Strip Position",
          y = "Smooth Signal Intensity",
          col = NULL) +
-    theme_classic() + 
-    theme(plot.title = element_text(hjust = 0.5,
+    ggplot2::theme_classic() + 
+    ggplot2::theme(plot.title = element_text(hjust = 0.5,
                                     size = 13,
                                     colour = "black"),
           axis.title.x = element_text(color = "gray37",
                                       size = 9),
           axis.title.y = element_text(colour = "gray37",
                                       size = 9),
-          panel.background = element_rect(fill = 'white', color = 'gray37')) +
-    scale_y_continuous(labels = scales::scientific,
+          panel.background = element_rect(fill = 'white', 
+                                          color = 'gray37')) +
+    ggplot2::scale_y_continuous(labels = scales::scientific,
                        limits = c(0,max(df_tidy_smooth$measurement) + 10000)) 
   
   plots_list[[i]] <- p
   
 }
 
-all_peaks_grid <- plot_grid(plotlist = plots_list, ncol = 4) #option 1: all peaks in a grid
+all_peaks_grid <- cowplot::plot_grid(plotlist = plots_list, 
+                                     ncol = 4) #option 1: all peaks in a grid
 #print(all_peaks_grid)
 
 for (p in plots_list) { #option 2: each peak in a different pdf page
@@ -363,7 +399,8 @@ remove(i, df_test, peak_test, p)
 
 peaks_df <- extract_peak_data(peaks_list)
 
-peaks_data <- merge_peak_data(df_tidy_smooth, peaks_df)
+peaks_data <- merge_peak_data(df_tidy_smooth, 
+                              peaks_df)
 
 
 remove(peaks_df)
@@ -373,55 +410,224 @@ remove(peaks_df)
 
 auc_T <- auc_calculation(x = peaks_smooth, 
                          y = peaks_data, 
-                         z = strip_line_cut, 
+                         z = strip_line, 
                          peak = "T")
 auc_C <- auc_calculation(x = peaks_smooth, 
                          y = peaks_data, 
-                         z = strip_line_cut, 
+                         z = strip_line, 
                          peak = "C")
 
 peaks_data <- cbind(peaks_data, auc_T, auc_C)
 
 peaks_data$"T/C" <- peaks_data$auc_T/peaks_data$auc_C
 
-peaks_data_export <- select(peaks_data, sample_name, 
+peaks_data_export <- dplyr::select(peaks_data, sample_name, 
                             strip, caa, auc_T, auc_C, `T/C`)
 
-#peaks_data_filename <- paste0("peaks_data_", file_name, ".xlsx")
+peaks_data_filename <- paste0("peaks_data_", file_name, ".xlsx")
 
-#write.xlsx(peaks_data_export, peaks_data_filename)
+openxlsx::write.xlsx(peaks_data_export, peaks_data_filename)
 
 remove(df, df_tidy, df_tidy_smooth, peaks, peaks_list, 
-       peaks_smooth, strip_line, auc_C, auc_T)
+       peaks_smooth, strip_line, auc_C, auc_T, peaks_data_filename)
 
 
-#------------ Standard Curve without Fitting --------
+#---------Reshape Data to Fit Curve---------
 
-#quickly check standard curve without fitting
+#make new dataframe selecting all strips that contain a standard curve measurements (caa != NA) 
+peaks_data_standard <- peaks_data_export %>% 
+  tidyr::drop_na(caa) %>%
+  dplyr::select(sample_name, caa, `T/C`)
 
-#pdf_curve_name <- paste0("unfitted_curve_", file_name, ".pdf")
+#name the different standard curves ("Curve1"/"Curve2"/"Curve3) 
+sequence <- rep(1:ceiling(nrow(peaks_data_standard)/10), each = 10, 
+                length.out = nrow(peaks_data_standard))
+peaks_data_standard$curve_name <- paste0("Curve", sequence)
 
-#pdf(pdf_curve_name) #I have to fix this to automatically take the file_name
-
-ggplot(data=peaks_data, aes(x=caa, y=`T/C`)) +
-  geom_point() +
-  scale_x_continuous(trans = 
-                       'log10') +
-  scale_y_continuous(trans = 'log10') 
-
-#dev.off()
-
-remove(file_name, pdf_curve_name, pdf_peaks_name, pdf_smoothpeaks_name, peaks_data_filename,
-       plots_list, peaks_graph_smooth)
-
-
-
-
-
+#check the unfitted curve of all standard measurements
+unfitted_curve <- ggplot2::ggplot(data=peaks_data_standard, 
+                                  aes(x=caa, y=`T/C`)) +
+  ggplot2::geom_point() +
+  ggplot2::scale_x_continuous(trans = 
+                                'log10') +
+  ggplot2::scale_y_continuous(trans = 
+                                'log10') + #?
+  ggplot2::theme_minimal()
 
 
+#Take the average for each measurement from each standard curve (usually 1 to 3 but can be any number of st curves)
+curve <- vector()
+for (i in 1:10) {
+  a <- peaks_data_standard %>%
+    dplyr::filter(stringr::str_ends(sample_name, as.character(i)))  # Convert i to a character
+  b <- mean(a$`T/C`)
+  curve[i] <- b  # Store the mean value in the appropriate index of the vector c
+}
+
+
+#calculate average T/C corresponding to 0 caa
+curve[11] <- (curve[9]+curve[10])/2
+curve <- curve[-c(9,10)]
+
+standard_df <- dplyr::tibble(CAA = peaks_data_standard$caa[1:9], 
+                             "T/C ratio" = curve)
+
+#plot the unfitted curve with the average standard measurements (no needed if it's only 1 st curve, it'll be the same)
+unfitted_curve_av <- ggplot2::ggplot(data=standard_df, 
+                                     aes(x=CAA, y=`T/C ratio`)) +
+  ggplot2::geom_point() +
+  ggplot2::scale_x_continuous(trans = 
+                                'log10') +
+  ggplot2::scale_y_continuous(trans = 
+                                'log10') +
+  ggplot2::theme_minimal()
+
+
+#---------Fit The Curve-------------
+
+RESP <- standard_df$`T/C ratio`
+DOSE <- standard_df$CAA
+NAMES  = c("slope","lower","upper","ed50")
+
+a <- drc::drm(standard_df$`T/C ratio` ~ standard_df$CAA,
+              data = peaks_data_standard, fct = LL.4(names = NAMES),
+              robust = "median") #not sure about this method, can still adapt
+
+#Plot the standard curve made with the averages and compare with individual measurements (different colors)
+
+pdf_standardcurve_name <- paste0("standard_curve_", file_name, ".pdf")
+
+pdf(pdf_standardcurve_name) #I have to fix this to automatically take the file_name
+
+plot(a, col = "steelblue3",
+     xlab = "CAA",
+     ylab = "T/C",
+     pch = 16,
+     log = "xy") 
+#If more than one standard curve, plot all points to compare
+points(peaks_data_standard$caa, peaks_data_standard$`T/C`,
+       col=factor(peaks_data_standard$curve_name),
+       pch = 16)
+legend(0.01, 2, legend=c("Standard Curve 1", 
+                         "Standard Curve 2",
+                         "Standard Curve 3", 
+                         "Average"),
+       col=c("black", "coral2", "chartreuse4", "steelblue3"),
+       pch = 16)
+
+dev.off()
+remove(pdf_standardcurve_name)
 
 
 
+#---------Delete a Data Point (If Needed)-----------------
 
+peaks_data_standard <- delete_points(df = peaks_data_standard,    
+                                     curve_number = "Curve1",  #the standard curve from which you wish to delete a standard T/C value
+                                     standard_point = "9")          #the standard point number you want to delete (eg "8" if it's the 8th point)
+peaks_data_standard <- delete_points(df = peaks_data_standard,    
+                                     curve_number = "Curve2",  #the standard curve from which you wish to delete a standard T/C value
+                                     standard_point = "10")  
+#repeat for as many points as needed
+
+#---------Repeat All Curve Fit Steps --------------
+#if a point was deleted in the previous step
+
+#Take the average for each measurement from each standard curve (usually 1 to 3 but can be any number of st curves)
+curve <- vector()
+for (i in 1:10) {
+  a <- peaks_data_standard %>%
+    dplyr::filter(str_ends(sample_name, as.character(i)))  # Convert i to a character
+  b <- mean(a$`T/C`)
+  curve[i] <- b  # Store the mean value in the appropriate index of the vector c
+}
+
+peaks_data_standard
+
+#calculate average T/C corresponding to 0 caa
+curve[11] <- (curve[9]+curve[10])/2
+curve <- curve[-c(9,10)]
+
+standard_df <- dplyr::tibble(CAA = peaks_data_standard$caa[1:9], 
+                             "T/C ratio" = curve)
+
+#plot the unfitted curve with the average standard measurements (no needed if it's only 1 st curve, it'll be the same)
+unfitted_curve_av <- ggplot2::ggplot(data=standard_df, aes(x=CAA, y=`T/C ratio`)) +
+  ggplot2::geom_point() +
+  ggplot2::scale_x_continuous(trans = 
+                                'log10') +
+  ggplot2::theme_minimal()
+
+#Fit The Curve after deleting point
+
+RESP <- standard_df$`T/C ratio`
+DOSE <- standard_df$CAA
+NAMES  = c("slope","lower","upper","ed50")
+
+a <- drc::drm(standard_df$`T/C ratio` ~ standard_df$CAA,
+              data = peaks_data_standard, fct = LL.4(names = NAMES),
+              robust = "median") #not sure about this method, can still adapt
+
+#Plot the standard curve made with the averages and compare with individual measurements (different colors)
+pdf_standardcurve_name <- paste0("standard_curve_", file_name, ".pdf")
+
+pdf(pdf_standardcurve_name) #I have to fix this to automatically take the file_name
+
+plot(a, col = "steelblue3",
+     xlab = "CAA",
+     ylab = "T/C",
+     pch = 16,
+     log = "xy") 
+#If more than one standard curve, plot all points to compare
+points(peaks_data_standard$caa, peaks_data_standard$`T/C`,
+       col=factor(peaks_data_standard$curve_name),
+       pch = 16)
+legend(0.01, 2, legend=c("Standard Curve 1", 
+                         "Standard Curve 2",
+                         "Standard Curve 3", 
+                         "Average"),
+       col=c("black", "coral2", "chartreuse4", "steelblue3"),
+       pch = 16)
+
+dev.off()
+remove(pdf_standardcurve_name)
+#---------Unknown Test Samples CAA Prediction-----------
+
+#make a new data frame selecting unknown test samples 
+peaks_data_unknown <- peaks_data_export %>%
+  dplyr::filter(str_detect(sample_name, "test_sample"))
+
+#predict caa value from T/C value
+test_sample <- drc::ED(object = a, 
+                       respLev = peaks_data_unknown$`T/C`, 
+                       type = "absolute")
+
+results_df <- cbind(peaks_data_unknown, test_sample) %>%
+  dplyr::select(strip, `T/C`, Estimate, `Std. Error`) 
+rownames(results_df) <- NULL
+colnames(results_df) <- c("Strip Number", "T/C Ratio", 
+                          "CAA Estimate", "Std. Error")
+
+results_df$Result <- NA #make new column for printing the result
+lower_st <- tail(which(!is.na(curve)), 1)
+
+
+cut_off <- 1 #above which the sample is positive/manual input??
+
+results_df <- results_df %>%
+  dplyr::mutate(Result = case_when(
+    is.nan(`CAA Estimate`) & `T/C Ratio` > curve[1] ~ "above limit of detection",
+    is.nan(`CAA Estimate`) & `T/C Ratio` < curve[lower_st] ~ "below limit of detection/negative",
+    `CAA Estimate` > cut_off ~ "positive",
+    `CAA Estimate` < cut_off ~ "negative"
+  ))
+
+results_filename <- paste0("results_", file_name, ".xlsx")
+
+openxlsx::write.xlsx(results_df, results_filename)
+
+remove(b, curve, cut_off, DOSE, RESP, lower_st,
+       i, NAMES, results_filename, pdf_standardcurve_name,
+       pdf_peaks_name, test_sample, peaks_data, peaks_data_standard,
+       peaks_data_unknown, sequence)
 
