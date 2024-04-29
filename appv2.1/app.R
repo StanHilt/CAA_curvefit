@@ -1,4 +1,5 @@
 library(readxl)
+library(purrr)
 library(pracma)
 library(openxlsx)
 library(tidyr)
@@ -15,6 +16,23 @@ library(shiny)
 library(shinythemes)
 
 #####Global functions####
+roll.min <- function(x, win.width=2, na.rm=T, ...)
+{
+  library(zoo)
+  # This will return a vector of the same size as original and will deal with NAs and optimize for mean.
+  return(rollapply(x, width=win.width, FUN=min, na.rm=na.rm, ..., partial=T, align='center'))
+}
+
+rollMinSubtraction <- function(y, win.width=25)
+{
+  return(y-roll.min(y, win.width=win.width))
+}
+
+removeNoise <- function(y, nSig=1.96, thresh=20*mad(y))
+{
+  return(y-(median(y[y<thresh]) + nSig*mad(y[y<thresh])))
+}
+
 
 #extract signal intensity measurement data from initial input file
 
@@ -68,7 +86,7 @@ reshape_df <- function(x, y) {    #x is the dataframe, y is the strip line numbe
 #rollmean function
 
 roll <- function(peaks){
-  p <- 4
+  p <- 2
   N <- nrow(peaks)-1
   peaks_smooth <- data.frame(matrix(nrow=N,ncol=ncol(peaks))) 
   for (i in seq_along(peaks)) {
@@ -610,6 +628,7 @@ model <- function(standard_df, peaks_data_standard){
   a <- drc::drm(standard_df$`T/C ratio` ~ standard_df$CAA,
                 data = peaks_data_standard, fct = LL.4(names = NAMES),
                 robust = "median") #not sure about this method, can still adapt
+  print(a)
   return(a)
 }
 
@@ -618,8 +637,9 @@ curvefitplot <- function(a, peaks_data_standard, assay){
   fitted_curve <- plot(a, col = "steelblue3",
                        xlab = "CAA",
                        ylab = "T/C",
+                       ylim = c(0.00001, 2),
                        pch = 16,
-                       log = "x") 
+                       log = "yx") 
   #If more than one standard curve, plot all points to compare
   points(peaks_data_standard$caa, peaks_data_standard$`T/C`,
          col=factor(peaks_data_standard$curve_name),
@@ -641,7 +661,7 @@ curvefitplot <- function(a, peaks_data_standard, assay){
                          xlab = "CAA",
                          ylab = "T/C",
                          pch = 16,
-                         log = "x") 
+                         log = "yx") 
     #If more than one standard curve, plot all points to compare
     points(peaks_data_standard$caa, peaks_data_standard$`T/C`,
            col=factor(peaks_data_standard$curve_name),
@@ -802,7 +822,7 @@ titlePanel("CAA curvefit"),
         ),
         #tabPanel("data table", dataTableOutput("df")),
         tabPanel("Results", 
-                 dataTableOutput("results"), 
+                 dataTableOutput("peak"), 
                  downloadButton("Downloadresults", "Download results"))
       )
     )
@@ -811,7 +831,7 @@ titlePanel("CAA curvefit"),
 
 
 # Define server logic required to draw a histogram
-server <- function(input, output) {
+server <- function(input, output, session) {
 
   df_list <- reactive({
     files <- list(
@@ -854,7 +874,7 @@ server <- function(input, output) {
   
 observeEvent(input$startAnalysis, {
   
-  output$df <- renderDataTable(peaks_data_auc())
+  output$df <- renderDataTable(df_tidy_smooth())
   
   test_samples<-reactive({ 
     n<-as.character(
@@ -887,36 +907,137 @@ observeEvent(input$startAnalysis, {
   })
   
   #grab peaks
-  peaks <- reactive({
+  df <- reactive({
     dfs <- lapply(df_list(), df_peaks)
     df <- do.call(rbind, dfs)
     df<- t(df)
+    return(as.data.frame(df))
+  })
+  
+  output$peak <- renderDataTable({as.data.frame(df_tidy())})
+  
+  strip_line <- reactive({(extract_stripline(df_list()[[1]]))})
+
+  df_clean <- reactive({
+    new_names <- (1:(ncol(df()) - 1))
+    peaks <- df()[2:ncol(df())] %>% set_names(new_names)
+    df_clean <- cbind(strip_line(), peaks)
+  })
+  
+  df_tidy <- reactive({
+    df_tidy <- gather(df_clean(), "strip", "value", 2:ncol(df_clean()))
+    print(df_tidy)
+  })
+  
+  df_tidy_smooth <- reactive({
+    df <- peaks_smooth_tidy() %>%
+      dplyr::mutate(sample_id = if_else(strip %in% test_samples(),
+                                        "test_sample", "standard")) %>%
+      dplyr::arrange(strip) %>%
+      tidyr::unite(sample_id, strip,
+                   col = "sample_name",
+                   remove = FALSE)
+    
+    if(input$assay == 2 || input$assay == 4) {
+      df <- df %>%
+        dplyr::mutate(
+          caa = case_when(
+            sample_name == "standard_1" ~ 1000,
+            sample_name == "standard_2" ~ 316,
+            sample_name == "standard_3" ~ 100,
+            sample_name == "standard_4" ~ 31.6,
+            sample_name == "standard_5" ~ 10,
+            sample_name == "standard_6" ~ 3.16,
+            sample_name == "standard_7" ~ 1,
+            sample_name == "standard_8" ~ 0.3,
+            sample_name == "standard_9" ~ 0,
+            sample_name == "standard_10" ~ 0,
+            sample_name == "standard_11" ~ 1000,
+            sample_name == "standard_12" ~ 316,
+            sample_name == "standard_13" ~ 100,
+            sample_name == "standard_14" ~ 31.6,
+            sample_name == "standard_15" ~ 10,
+            sample_name == "standard_16" ~ 3.16,
+            sample_name == "standard_17" ~ 1,
+            sample_name == "standard_18" ~ 0.3,
+            sample_name == "standard_19" ~ 0,
+            sample_name == "standard_20" ~ 0,
+            sample_name == "standard_21" ~ 1000,
+            sample_name == "standard_22" ~ 316,
+            sample_name == "standard_23" ~ 100,
+            sample_name == "standard_24" ~ 31.6,
+            sample_name == "standard_25" ~ 10,
+            sample_name == "standard_26" ~ 3.16,
+            sample_name == "standard_27" ~ 1,
+            sample_name == "standard_28" ~ 0.3,
+            sample_name == "standard_29" ~ 0,
+            sample_name == "standard_30" ~ 0,
+            TRUE ~ NA
+          )
+        )
+    }else{
+      df <- df %>%
+        dplyr::mutate(
+          caa = case_when(
+            sample_name == "standard_1" ~ 10000,
+            sample_name == "standard_2" ~ 3160,
+            sample_name == "standard_3" ~ 1000,
+            sample_name == "standard_4" ~ 316,
+            sample_name == "standard_5" ~ 100,
+            sample_name == "standard_6" ~ 31.6,
+            sample_name == "standard_7" ~ 10,
+            sample_name == "standard_8" ~ 3,
+            sample_name == "standard_9" ~ 0,
+            sample_name == "standard_10" ~ 0,
+            sample_name == "standard_11" ~ 10000,
+            sample_name == "standard_12" ~ 3160,
+            sample_name == "standard_13" ~ 1000,
+            sample_name == "standard_14" ~ 316,
+            sample_name == "standard_15" ~ 100,
+            sample_name == "standard_16" ~ 31.6,
+            sample_name == "standard_17" ~ 10,
+            sample_name == "standard_18" ~ 3,
+            sample_name == "standard_19" ~ 0,
+            sample_name == "standard_20" ~ 0,
+            sample_name == "standard_21" ~ 10000,
+            sample_name == "standard_22" ~ 3160,
+            sample_name == "standard_23" ~ 1000,
+            sample_name == "standard_24" ~ 316,
+            sample_name == "standard_25" ~ 100,
+            sample_name == "standard_26" ~ 31.6,
+            sample_name == "standard_27" ~ 10,
+            sample_name == "standard_28" ~ 3,
+            sample_name == "standard_29" ~ 0,
+            sample_name == "standard_30" ~ 0,
+            TRUE ~ NA
+          )
+        )
+      
+    }
     return(df)
   })
   
-  output$peak <- renderDataTable({as.data.frame(df_tidy_smooth_samples())})
-  
-  strip_line <- reactive({(extract_stripline(df_list()[[1]]))})
-  df_tidy <- reactive({
-    withProgress(message = "Analyzing data", value = 0,{
-    tidy <- lapply(df_list(), reshape_df, strip_line())
-    tidy_df_info <-  lapply(seq_along(tidy), function(i) {
-      transform(tidy[[i]], df_number = paste0("df_", i))
-    })
-    tidy_df_joined <- Reduce(full_join, tidy_df_info)
-    tidy_df_joined$strip <- paste(tidy_df_joined$df_number, tidy_df_joined$strip, sep = "_")
-    tidy_df_joined$strip <- as.factor(tidy_df_joined$strip)
-    print(tidy_df_joined)
-    return(tidy_df_joined)
-  })
+  peaks_smooth <- reactive({
+    rolled_min <-
+      rollMinSubtraction(df_clean()[2:ncol(df_clean())], input$window)
+    smoothed <- transmute_all(rolled_min, removeNoise)
+    smoothed[smoothed < 0] <- 0
+    return(smoothed)
   })
   
-  peaks_t <- reactive({as.data.frame((peaks()))})
-  peaks_smooth <- reactive({roll(peaks_t())})
-  peaks_smooth_bc <- reactive({background_correction(peaks_smooth())})
-  strip_line_short <- reactive({(strip_line()[-100])})
-  df_tidy_smooth <- reactive({reshape_df_smooth(peaks_smooth_bc(), strip_line_short())})
-  df_tidy_smooth_samples <- reactive({add_samples(df_tidy_smooth(), test_samples(), input$assay)})
+  peaks_smooth_tidy <- reactive({
+    peaks_smooth_tidy <- cbind(strip_line(), peaks_smooth())
+    peaks_smooth_tidy <-
+      gather(peaks_smooth_tidy,
+             "strip",
+             "value",
+             2:ncol(peaks_smooth_tidy))
+    peaks_smooth_tidy$strip <- as.numeric(peaks_smooth_tidy$strip)
+    peaks_smooth_tidy <-
+      rename(peaks_smooth_tidy,
+             c("position" = "strip_line()", "measurement" = value))
+  })
+  
   
   #plot the raw vs smooth data
   output$rawvssmooth <- renderPlot(
@@ -1084,6 +1205,11 @@ observeEvent(input$range, {
     }
   )
 })
+
+session$onSessionEnded(function() {
+  stopApp()
+})
+
 }
 # Run the application 
 shinyApp(ui = ui, server = server)
