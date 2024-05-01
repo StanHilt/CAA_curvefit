@@ -491,8 +491,8 @@ test_peak_detect <- function(peak_list_ctrl, peaks_smooth){
   
   a <- as.numeric(unlist(a))
   
-  b <- a - 40
-  c <- a - 10
+  b <- a - 30
+  c <- a - 20
   
   #range start (b) and end (c) vectors
   b <- min(b)
@@ -506,7 +506,7 @@ test_peak_detect <- function(peak_list_ctrl, peaks_smooth){
     output <- pracma::findpeaks(peaks_smooth[b:c,i],
                                 nups = 2, ndowns = 2, 
                                 npeaks = 1,
-                                minpeakheight = 5000
+                                minpeakheight = 8000
     )
     peak_list_test[[i]] <- output
   }
@@ -541,7 +541,7 @@ test_peak_detect <- function(peak_list_ctrl, peaks_smooth){
     output <- pracma::findpeaks(recheck_peaks[b:c, i],
                                 peakpat = "[+]{2,}[-]{1,}[+]{1,}[-]{2,}",
                                 npeaks = 1,
-                                minpeakheight = 5000
+                                minpeakheight = 8000
     )
     
     # Check if output is not NULL before assigning
