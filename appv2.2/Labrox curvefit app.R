@@ -486,13 +486,13 @@ delete_points <- function(df, curve_number, standard_point) {
 
 #test peak detection integrated
 
-test_peak_detect <- function(peak_list_ctrl, peaks_smooth){
+test_peak_detect <- function(peak_list_ctrl, peaks_smooth, range){
   a <- lapply(peak_list_ctrl,function(mat) mat[, 2])
   
   a <- as.numeric(unlist(a))
   
-  b <- a - 30
-  c <- a - 20
+  b <- a - range[2]
+  c <- a - range[1]
   
   #range start (b) and end (c) vectors
   b <- min(b)
@@ -506,7 +506,7 @@ test_peak_detect <- function(peak_list_ctrl, peaks_smooth){
     output <- pracma::findpeaks(peaks_smooth[b:c,i],
                                 nups = 2, ndowns = 2, 
                                 npeaks = 1,
-                                minpeakheight = 6000
+                                minpeakheight = 100000
     )
     peak_list_test[[i]] <- output
   }
@@ -541,7 +541,7 @@ test_peak_detect <- function(peak_list_ctrl, peaks_smooth){
     output <- pracma::findpeaks(recheck_peaks[b:c, i],
                                 peakpat = "[+]{2,}[-]{1,}[+]{1,}[-]{2,}",
                                 npeaks = 1,
-                                minpeakheight = 6000
+                                minpeakheight = 100000
     )
     
     # Check if output is not NULL before assigning
@@ -861,8 +861,9 @@ titlePanel("CAA Labrox Analysis"),
       conditionalPanel(
         condition = "input.Show_options",
       textInput("exclude", label = h4("Enter strip numbers to exclude, separated by commas")),
-      sliderInput("range", "Set control peak detection range", min = 40, max = 100, value = c(40,90)),
-      actionButton("startAnalysis", "Start Analysis"),
+      sliderInput("range", "Set control peak detection range", min = 40, max = 100, value = c(49,76)),
+      sliderInput("range2", "Set test peak detection range", min = 0, max = 40, value = c(10,40)),
+      
       textInput(
         "rmstandard", 
         label = h4("Enter standard curve and number to exclude, e.g Curve1_1, Curve2_3")
@@ -870,7 +871,7 @@ titlePanel("CAA Labrox Analysis"),
       numericInput(
         "window",
         label = h4("Select rolling minimum window width:"),
-        min = 20, max = 100, value = 50
+        min = 20, max = 100, value = 40
       ),
     ),
   ),
@@ -1135,7 +1136,7 @@ output$df <- renderDataTable(peaks_df())
   })
   
   peaks_list <- reactive({
-    df <- test_peak_detect(peak_list_control(), peaks_smooth())
+    df <- test_peak_detect(peak_list_control(), peaks_smooth(), input$range2)
     print(df)
   })
   
@@ -1253,8 +1254,107 @@ output$df <- renderDataTable(peaks_df())
     })
   
   output$results <- renderDataTable(results())
-})
+  #download raw vs smooth
+  output$downloadrawvssmooth = downloadHandler(
+    filename = function() {
+      paste0(input$name, "_raw_vs_smooth.png")
+    },
+    content = function(file) {
+      dpi <- 800  # Set the desired DPI
+      width_inches <- 6  # Set the desired width in inches
+      height_inches <-
+        (1 * (ncol(peaks_smooth() / 2))) # Set the desired height in inches
+      
+      width_pixels <- dpi * width_inches
+      height_pixels <- dpi * height_inches
+      
+      png(
+        file,
+        width = width_pixels,
+        height = height_pixels,
+        units = "px",
+        res = dpi
+      )
+      withProgress(message = "Downloading", value = 0,{
+        print( peaks_graph_smooth(df_tidy(), df_tidy_smooth()))
+      })
+      dev.off()
+    }
+  )
 
+  #download peaks
+  output$downloadPeaks = downloadHandler(
+    filename = function() {
+      paste0(input$name, "_peaks.png")
+    },
+    content = function(file) {
+      dpi <- 800  # Set the desired DPI
+      width_inches <- 6  # Set the desired width in inches
+      height_inches <-
+        (1 * (ncol(peaks_smooth() / 2)))
+      
+      width_pixels <- dpi * width_inches
+      height_pixels <- dpi * height_inches
+      
+      png(file, width = width_pixels, height = height_pixels, units = "px", res = dpi)
+      withProgress(message = "Downloading", value = 0,{
+        print(plot_list_all(peaks_smooth_bc(), df_tidy_smooth(), peaks_list()))
+      })
+      dev.off()
+    }
+  )
+  
+  output$downloadavgcurve = downloadHandler(
+    filename = function() {
+      paste0(input$name, "_average_curve.png")
+    },
+    content = function(file) {
+      dpi <- 200  # Set the desired DPI
+      width_inches <- 8  # Set the desired width in inches
+      height_inches <- 6 # Set the desired height in inches
+      
+      width_pixels <- dpi * width_inches
+      height_pixels <- dpi * height_inches
+      
+      png(file, width = width_pixels, height = height_pixels, units = "px", res = dpi)
+      withProgress(message = "Downloading", value = 0,{
+        print(averageplot(standard_df()))
+      })
+      dev.off()
+    }
+  )
+
+  output$downloadcurve = downloadHandler(
+    filename = function() {
+      paste0(input$name, "_fitted_curve.png")
+    },
+    content = function(file) {
+      dpi <- 200  # Set the desired DPI
+      width_inches <- 8  # Set the desired width in inches
+      height_inches <- 6 # Set the desired height in inches
+      
+      width_pixels <- dpi * width_inches
+      height_pixels <- dpi * height_inches
+      
+      png(file, width = width_pixels, height = height_pixels, units = "px", res = dpi)
+      withProgress(message = "Downloading", value = 0,{
+        print(curvefitplot(curvemodel(), peaks_data_standard_names(), input$assay))
+      })
+      dev.off()
+    }
+  )
+  
+  #download results
+  output$Downloadresults = downloadHandler(
+    filename = function() {
+      paste0(input$name, "_results.csv")
+    },
+    content = function(filename) {
+      write.csv(results(), filename)
+    }
+  )
+  
+})
 
 session$onSessionEnded(function() {
   stopApp()
