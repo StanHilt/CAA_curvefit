@@ -861,8 +861,8 @@ titlePanel("CAA Labrox Analysis"),
       conditionalPanel(
         condition = "input.Show_options",
       textInput("exclude", label = h4("Enter strip numbers to exclude, separated by commas")),
-      sliderInput("range", "Set control peak detection range", min = 40, max = 100, value = c(49,76)),
-      sliderInput("range2", "Set test peak detection range", min = 0, max = 40, value = c(10,40)),
+      sliderInput("range", "Set control peak detection range", min = 40, max = 100, value = c(40,76)),
+      sliderInput("range2", "Set test peak detection range", min = 0, max = 40, value = c(20,40)),
       
       textInput(
         "rmstandard", 
@@ -987,7 +987,7 @@ output$df <- renderDataTable(peaks_df())
     return(n)
   })
 
-    output$results <- renderDataTable(df())
+    output$results <- renderDataTable(results())
   #grab peaks
   df <- reactive({
     dfs <- lapply(df_list(), df_peaks)
